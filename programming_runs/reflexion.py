@@ -73,8 +73,17 @@ def run_reflexion(
                 if reflected_func_impl is None:
                     # code cannot be extracted from the response.
                     # we just skip this iteration and reflection again.
-                    cur_iter += 1
-                    continue
+                    if cur_iter == max_iters - 1:
+                        is_passing = exe.evaluate(
+                            item["entry_point"], cur_func_impl, item["test"], timeout=10)
+                        if is_passing:
+                            item["solution"] = cur_func_impl
+                            is_solved = True
+                            num_success += 1
+                        break
+                    else:
+                        cur_iter += 1
+                        continue
                 assert isinstance(reflected_func_impl, str)
                 reflections += [reflection]
                 cur_func_impl = reflected_func_impl
