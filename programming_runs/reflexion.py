@@ -39,7 +39,9 @@ def run_reflexion(
             # first attempt
             cur_func_impl = gen.func_impl(item["prompt"], model, "simple")
             implementations.append(cur_func_impl)
-            assert isinstance(cur_func_impl, str)
+            if cur_func_impl is None:
+                # code cannot be extracted from the response.
+                cur_func_impl = ""
             is_passing, feedback, _ = exe.execute(cur_func_impl, tests_i)
             test_feedback.append(feedback)
 
@@ -58,10 +60,9 @@ def run_reflexion(
                 # get self-reflection
                 reflection = gen.self_reflection(
                     cur_func_impl, cur_feedback, model)
-                reflections += [reflection]
 
                 # apply self-reflection in the next attempt
-                cur_func_impl = gen.func_impl(
+                reflected_func_impl = gen.func_impl(
                     func_sig=item["prompt"],
                     model=model,
                     strategy="reflexion",
@@ -69,8 +70,16 @@ def run_reflexion(
                     feedback=cur_feedback,
                     self_reflection=reflection,
                 )
+                if reflected_func_impl is None:
+                    # code cannot be extracted from the response.
+                    # we just skip this iteration and reflection again.
+                    cur_iter += 1
+                    continue
+                assert isinstance(reflected_func_impl, str)
+                reflections += [reflection]
+                cur_func_impl = reflected_func_impl
                 implementations.append(cur_func_impl)
-                assert isinstance(cur_func_impl, str)
+
 
                 # check if all internal unit tests pass
                 is_passing, cur_feedback, _ = exe.execute(
