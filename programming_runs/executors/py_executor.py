@@ -2,12 +2,18 @@ import ast
 import signal
 import astunparse
 
-from .executor_utils import function_with_timeout
 
 from typing import List
 from .executor_types import ExecuteResult, Executor
+from .runtime import GenericRuntime, timeout_limit
+import traceback
+
 
 class PyExecutor(Executor):
+
+    def __init__(self):
+        self.runtime = GenericRuntime()
+
     def execute(self, func: str, tests: List[str], timeout: int = 5) -> ExecuteResult:
         # Combine function code and assert statement
         imports = 'from typing import *'
@@ -19,16 +25,19 @@ class PyExecutor(Executor):
         is_passing = True
         num_tests = len(func_test_list)
         for i in range(num_tests):
-            try:
-
-                function_with_timeout(exec, (func_test_list[i], globals()), timeout)
-
-                success_tests += [tests[i]]
-            except Exception:
-                output = get_output(func, tests[i], timeout=timeout)
-                failed_tests += [f"{tests[i]} # output: {output}"]
-                is_passing = False
-
+            # print(f"Current function @ {i}")
+            # print(func_test_list[i])
+            with timeout_limit(timeout):
+                try:
+                    self.runtime.exec_code(func_test_list[i])
+                    success_tests += [tests[i]]
+                except:
+                    output = get_output(self.runtime, f'{imports}\n{func}', tests[i], timeout=timeout)
+                    print(f"{tests[i]} # output: {output}")
+                    failed_tests += [f"{tests[i]} # output: {output}"]
+                    is_passing = False
+            ## just to clear history
+            self.runtime.clear()
         state = []
         for test in tests:
             if test in success_tests:
@@ -59,13 +68,13 @@ class PyExecutor(Executor):
 
 check({name})
     """
-        try:
+        with timeout_limit(timeout):
+            try:
+                self.runtime.exec_code(code)
+                return True
+            except Exception as e:
+                return False
 
-            function_with_timeout(exec, (code, globals()), timeout)
-
-            return True
-        except Exception:
-            return False
 
 def get_call_str(assert_statement: str) -> str:
     ast_parsed = ast.parse(assert_statement)
@@ -76,16 +85,26 @@ def get_call_str(assert_statement: str) -> str:
 
     return astunparse.unparse(call_str).strip()
 
-def get_output(func: str, assert_statement: str, timeout: int = 5) -> str:
-    try:
-        exec(f"from typing import *\n{func}", globals())
-        func_call = get_call_str(assert_statement)
-        output = function_with_timeout(eval, (func_call, globals()), timeout)
-        return output
-    except TimeoutError:
-        return "TIMEOUT"
-    except Exception as e:
-        return str(e)
+
+def get_output(runtime: GenericRuntime, func: str, assert_statement: str, timeout: int = 5) -> str:
+    with timeout_limit(timeout):
+        try:
+            func_call = get_call_str(assert_statement)
+            runtime.exec_code(func)
+            output = runtime.eval_code(func_call)
+            return output
+        except TimeoutError:
+            return "TIMEOUT"
+        except (Exception, KeyboardInterrupt, SystemExit) as e:
+            if isinstance(e, SystemExit):
+                error_message = "System exit requested."
+            elif isinstance(e, KeyboardInterrupt):
+                error_message = "Execution interrupted by user."
+            else:
+                error_message = str(e)
+            # error_message = traceback.format_exc()  # much more detailed message.
+            return str(error_message)
+
 
 if __name__ == "__main__":
     pass
